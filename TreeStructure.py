@@ -2,6 +2,7 @@ import heapq
 import random
 import requests
 import json
+import os
 
 # @dataclass(order=True)
 class LLMNode():
@@ -27,6 +28,18 @@ def generate(llm: str, prompt:str) -> str:
     f.close()
     return dictionary['response']
 
+def init_atlas_dataset():
+    dataset = []
+    directory = 'atlas-converse'
+    for filename in os.listdir(directory):
+        f = os.path.join(directory, filename)
+        if f.endswith('json'):
+            with open(f, 'r') as file:
+                dataset.extend(json.load(f))
+        f.close()
+
+    return dataset
+
 def init_tree(llmList:list) -> list:
     li = []
     for _ in llmList:
@@ -36,10 +49,14 @@ def init_tree(llmList:list) -> list:
 
 if __name__ == "__main__":
     llmNodes = init_tree(['llama', 'gemma', 'mistral', 'deepseek', 'phi'])
+    
+    print("LLMs being used in the tree:")
     for _ in llmNodes:
-        print(_)
+        print(_.model_name, end=' | ')
 
-    ## querying, and got some updated scores say
+    
+    atlas_dataset = init_atlas_dataset()
+    
 
     score_phi = 1
     for _ in llmNodes:
