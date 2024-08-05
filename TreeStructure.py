@@ -3,6 +3,7 @@ import random
 import requests
 import json
 import os
+import math
 
 # @dataclass(order=True)
 class LLMNode():
@@ -15,7 +16,32 @@ class LLMNode():
     
     def __repr__(self) -> str:
         return f"{self.model_name} with score {self.score:.3f}"
+
+class TreeEnsemble():
+    def __init__(self, tree_list: list) -> None:
+        self.tree_structure = self.init_tree(tree_list)
+        self.max_depth = math.floor(math.log(len(tree_list))) + 1
+
+    def init_tree(self, llmList: list) -> list:
+        li = []
+        for _ in llmList:
+            li.append(LLMNode(_, random.random()))
+        heapq.heapify(li)
+        return li
     
+    def nodes_at_depth(self, depth: int) -> list:
+        start_index = 2**depth - 1
+        end_index = 2**(depth + 1) - 1
+        return self.tree_structure[start_index:end_index]
+    
+    def restructure_tree(self, scores: list) -> None:
+        for i in range(len(self.tree_structure)):
+            self.tree_structure[i].score = scores[i]
+        heapq.heapify(self.tree_structure)
+
+
+
+# auxiliary methods
 def generate(llm: str, prompt: str, context: str) -> str:
     url = 'http://127.0.0.1:11434/api/generate'
     f = open('input.json', 'r')
@@ -28,7 +54,23 @@ def generate(llm: str, prompt: str, context: str) -> str:
     f.close()
     return dictionary['response']
 
-def init_atlas_dataset():
+def query_tree(tree: TreeEnsemble, query: str) -> str:
+    context = [""]*len(tree.nodes_at_depth(tree.max_depth))
+    for i in range(tree.max_depth, -1, -1):
+        li = tree.nodes_at_depth(i)
+        if len(context) < len(li):
+            context.extend([""]*(len(li)-len(context)))
+        for j in range(0, len(li), 2):
+            response1 = generate(li[j].model_name, query, context.pop(0))
+            c = response1
+            if j+1<len(li):
+                response2 = generate(li[j+1].model_name, query, context.pop(0))
+                c += response2
+            context.append(c)
+    
+    return context[0]
+
+def init_atlas_dataset() -> list:
     dataset = []
     directory = 'atlas-converse'
     for filename in os.listdir(directory):
@@ -40,55 +82,20 @@ def init_atlas_dataset():
 
     return dataset
 
-def init_tree(llmList:list) -> list:
-    li = []
-    for _ in llmList:
-        li.append(LLMNode(_, random.random()))
-    heapq.heapify(li)
-    return li
 
-def nodes_at_depth(heap, depth):
-    start_index = 2**depth - 1
-    end_index = 2**(depth + 1) - 1
-    return heap[start_index:end_index]
 
 if __name__ == "__main__":
-    llmNodes = init_tree(['llama3', 'gemma', 'mistral', 'phi', 'deepseek-llm', 'qwen2', 'orca-mini'])
+    tree = TreeEnsemble(['llama3', 'gemma', 'mistral', 'phi', 'deepseek-llm', 'qwen2', 'orca-mini'])
     
     print("LLMs initialized in the tree:")
-    for _ in llmNodes:
-        print(_, end=' | ')
-    print('####')
+    for _ in tree.tree_structure:
+        print(_)
+    print('########')
     
     # atlas_dataset = init_atlas_dataset()
     q = "What is applied anthropology?"
     a = "Applied anthropology refers to the practical application of anthropological theories and methods to solve contemporary social problems. It involves working with communities to understand and address issues such as poverty, health, education, and inequality."
     
-    d_max = 2
-    c = [""]*len(nodes_at_depth(llmNodes, d_max))
-    for i in range(d_max, -1, -1):
-        li = nodes_at_depth(llmNodes, i)
-        if len(c) < len(li):
-            c.extend([""]*(len(li)-len(c)))
-        for j in range(0, len(li), 2):
-            response1 = generate(li[j].model_name, q, c.pop(0))
-            context = response1
-            if j+1<len(li):
-                response2 = generate(li[j+1].model_name, q[j+1], c.pop(0))
-                context += response2
-            c.append(context)
-
-    print("THE FINAL OUTPUT IS: " + c[0])
-
-    # score_phi = 1
-    # for _ in llmNodes:
-    #     if _.model_name == 'phi':
-    #         _.score = score_phi
-    #         break
-    
-    # heapq.heapify(llmNodes)
-    # print('After updating score: ')
-    # for _ in llmNodes:
-    #     print(_)
-
+    print("O/P of one run of randomized tree structure")
+    print(query_tree(tree, q))
     
