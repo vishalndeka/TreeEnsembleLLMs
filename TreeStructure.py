@@ -4,6 +4,9 @@ import requests
 import json
 import os
 import math
+from evaluate import load
+import time
+import datasets
 
 # @dataclass(order=True)
 class LLMNode():
@@ -18,9 +21,10 @@ class LLMNode():
         return f"{self.model_name} with score {self.score:.3f}"
 
 class TreeEnsemble():
-    def __init__(self, tree_list: list) -> None:
+    def __init__(self, tree_list: list, scorer: str) -> None:
         self.tree_structure = self.init_tree(tree_list)
         self.max_depth = math.floor(math.log(len(tree_list))) + 1
+        self.scorer = load(scorer)
 
     def init_tree(self, llmList: list) -> list:
         li = []
@@ -47,14 +51,14 @@ def generate(llm: str, prompt: str, context: str) -> str:
     f = open('input.json', 'r')
     data = json.load(f)
     data['model'] = llm
-    data['prompt'] = "Answer the question: " + prompt + ", given the context: " + context
+    data['prompt'] = "Answer the question: " + prompt + ", given the context: " + context + " Output just the answer and do not mention that the question's already answered, if its in the context."
     response = requests.post(url, json=data)
     assert response.status_code == 200
     dictionary = json.loads(response.text)
     f.close()
     return dictionary['response']
 
-def query_tree(tree: TreeEnsemble, query: str) -> str:
+def query_tree(tree: TreeEnsemble, query: str, reference: str) -> str:
     context = [""]*len(tree.nodes_at_depth(tree.max_depth))
     for i in range(tree.max_depth, -1, -1):
         li = tree.nodes_at_depth(i)
@@ -62,13 +66,18 @@ def query_tree(tree: TreeEnsemble, query: str) -> str:
             context.extend([""]*(len(li)-len(context)))
         for j in range(0, len(li), 2):
             response1 = generate(li[j].model_name, query, context.pop(0))
+            score1 = tree.scorer.compute(predictions = response1, references = reference, lang="en")['f1']
+            li[j].score = score1
             c = response1
             if j+1<len(li):
                 response2 = generate(li[j+1].model_name, query, context.pop(0))
+                score2 = tree.scorer.compute(predictions = response2, references = reference, lang="en")['f1']
+                li[j+1].score = score2
                 c += response2
             context.append(c)
     
-    return context[0]
+    score = tree.scorer.compute(predictions = [context[0]], references = [reference], lang="en")['f1']
+    return context[0], score
 
 def init_atlas_dataset() -> list:
     dataset = []
@@ -82,20 +91,66 @@ def init_atlas_dataset() -> list:
 
     return dataset
 
+def dataset_init_conv_questions() -> datasets.arrow_dataset.Dataset:
+    # to return a smaller number of question sets
+    # must be in the format 'dataset_name[i]['questions']'
+    dataset = datasets.load_dataset("conv_questions")
+    train_data = dataset['train'].select(range(2))
+    # test_data = dataset['train'].select(range(2))
+    # validation_data = dataset['train'].select(range(2))
+
+    return train_data
+
+def with_hist(tree: TreeEnsemble, dataset: datasets.arrow_dataset.Dataset):
+    filename = 'Experiment_Results\with_hist.txt'
+    scores_file = 'Experiment_Results\scores_with_hist.txt'
+    answers = []
+    final_scores = []
+    for i in range(len(dataset)):
+        context = ""
+        scores = []
+        ans_set = []
+        for j in range(len(dataset[i]['questions'])):
+            question = dataset[i]['questions'][j]
+            if j==0:
+                question += dataset[i]['seed_entity_text']
+            response, score = query_tree(tree, question, dataset[i]['answer_texts'][j])
+            scores.append(score)
+            ans_set.append(response)
+            context += response
+        answers.append(ans_set)
+        final_scores.append(scores)
+        heapq.heapify(tree.tree_structure)
+    
+    with open(filename, 'w') as f:
+        for line in answers:
+            f.write(f"{line}\n")
+    f.close()
+    with open(scores_file, 'w') as f:
+        for line in final_scores:
+            f.write(f"{line}\n")
+    f.close()
+    return answers, scores
 
 
 if __name__ == "__main__":
-    tree = TreeEnsemble(['llama3', 'gemma', 'mistral', 'phi', 'deepseek-llm', 'qwen2', 'orca-mini'])
+    tree = TreeEnsemble(['llama3', 'gemma', 'mistral', 'phi', 'deepseek-llm', 'qwen2', 'orca-mini'], "bertscore")
     
     print("LLMs initialized in the tree:")
     for _ in tree.tree_structure:
         print(_)
-    print('########')
+    print('#################################')
     
     # atlas_dataset = init_atlas_dataset()
-    q = "What is applied anthropology?"
-    a = "Applied anthropology refers to the practical application of anthropological theories and methods to solve contemporary social problems. It involves working with communities to understand and address issues such as poverty, health, education, and inequality."
-    
-    print("O/P of one run of randomized tree structure")
-    print(query_tree(tree, q))
+    # q = "What is applied anthropology?"
+    # a = "Applied anthropology refers to the practical application of anthropological theories and methods to solve contemporary social problems. It involves working with communities to understand and address issues such as poverty, health, education, and inequality."
+    # print("O/P of one run of randomized tree structure")
+    # print(query_tree(tree, q))
+
+    dataset_conv_questions = dataset_init_conv_questions()
+    results_1, scores = with_hist(tree, dataset_conv_questions)
+
+    for _ in tree.tree_structure:
+        print(_)
+
     
