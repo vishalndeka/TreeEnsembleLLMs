@@ -47,7 +47,8 @@ class TreeEnsemble():
 
 # auxiliary methods
 def generate(llm: str, prompt: str, context: str) -> str:
-    url = 'http://127.0.0.1:11434/api/generate'
+    url = 'https://996c-35-193-113-166.ngrok-free.app/api/generate'
+    # url = 'http://127.0.0.1:11434/api/generate'
     f = open('input.json', 'r') # /kaggle/input/treefiles/input.json - for kaggle
     data = json.load(f)
     data['model'] = llm
@@ -95,7 +96,7 @@ def dataset_init_conv_questions() -> datasets.arrow_dataset.Dataset:
     # to return a smaller number of question sets
     # must be in the format 'dataset_name[i]['questions']'
     dataset = datasets.load_dataset("conv_questions", trust_remote_code=True)
-    train_data = dataset['train'].select(range(1))
+    train_data = dataset['train'].select(range(100))
     # test_data = dataset['train'].select(range(2))
     # validation_data = dataset['train'].select(range(2))
 
@@ -106,7 +107,10 @@ def with_hist(tree: TreeEnsemble, dataset: datasets.arrow_dataset.Dataset):
     scores_file = 'Experiment_Results\scores_with_hist.txt'
     answers = []
     final_scores = []
+    fa = []
+    sa = []
     for i in range(len(dataset)):
+        print("At i: " + str(i))
         context = ""
         scores = []
         ans_set = []
@@ -118,34 +122,36 @@ def with_hist(tree: TreeEnsemble, dataset: datasets.arrow_dataset.Dataset):
             scores.append(score)
             ans_set.append(response)
             context += response
-        answers.append(ans_set)
-        final_scores.append(scores)
+        fa.append(ans_set)
+        sa.append(scores)
+        
         heapq.heapify(tree.tree_structure)
+
+        if i%1==0:
+            with open(filename, 'a') as f:
+                for line in fa:
+                    f.write(f"{line}\n")
+            f.close()
+            answers.extend(fa)
+            fa = []
+
+            with open(scores_file, 'a') as f:
+                for line in sa:
+                    f.write(f"{line}\n")
+            f.close()
+            final_scores.extend(sa)
+            sa = []
     
-    with open(filename, 'w') as f:
-        for line in answers:
+    print('Writing out the rest of the answers now: ')
+    with open(filename, 'a') as f:
+        for line in fa:
             f.write(f"{line}\n")
     f.close()
-    with open(scores_file, 'w') as f:
-        for line in final_scores:
+    with open(scores_file, 'a') as f:
+        for line in sa:
             f.write(f"{line}\n")
     f.close()
-    return answers, scores
-
-# colab methods
-def colab_init() -> None:
-    time.sleep(15)
-    install_llms()
-
-def install_llms() -> None:
-    print('#########################    Installing LLMS    #########################')
-    os.system('ollama pull mistral')
-    os.system('ollama pull gemma')
-    os.system('ollama pull qwen2')
-    os.system('ollama pull llama3')
-    os.system('ollama pull deepseek-llm')
-    os.system('ollama pull orca-mini')
-    os.system('ollama pull phi')
+    return answers, final_scores
 
 if __name__ == "__main__":
     # colab_init() # call this to make script run in colab
