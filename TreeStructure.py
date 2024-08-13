@@ -66,13 +66,13 @@ def query_tree(tree: TreeEnsemble, query: str, reference: str) -> str:
             context.extend([""]*(len(li)-len(context)))
         for j in range(0, len(li), 2):
             response1 = generate(li[j].model_name, query, context.pop(0))
-            score1 = tree.scorer.compute(predictions = response1, references = reference, lang="en")['f1']
-            li[j].score = score1
+            score1 = tree.scorer.compute(predictions = [response1], references = [reference], lang="en")['f1']
+            li[j].score = score1[0]
             c = response1
             if j+1<len(li):
                 response2 = generate(li[j+1].model_name, query, context.pop(0))
-                score2 = tree.scorer.compute(predictions = response2, references = reference, lang="en")['f1']
-                li[j+1].score = score2
+                score2 = tree.scorer.compute(predictions = [response2], references = [reference], lang="en")['f1']
+                li[j+1].score = score2[0]
                 c += response2
             context.append(c)
     
@@ -94,8 +94,8 @@ def init_atlas_dataset() -> list:
 def dataset_init_conv_questions() -> datasets.arrow_dataset.Dataset:
     # to return a smaller number of question sets
     # must be in the format 'dataset_name[i]['questions']'
-    dataset = datasets.load_dataset("conv_questions")
-    train_data = dataset['train'].select(range(2))
+    dataset = datasets.load_dataset("conv_questions", trust_remote_code=True)
+    train_data = dataset['train'].select(range(1))
     # test_data = dataset['train'].select(range(2))
     # validation_data = dataset['train'].select(range(2))
 
@@ -111,7 +111,7 @@ def with_hist(tree: TreeEnsemble, dataset: datasets.arrow_dataset.Dataset):
         scores = []
         ans_set = []
         for j in range(len(dataset[i]['questions'])):
-            question = dataset[i]['questions'][j]
+            question = dataset[i]['questions'][j] + context
             if j==0:
                 question += dataset[i]['seed_entity_text']
             response, score = query_tree(tree, question, dataset[i]['answer_texts'][j])
@@ -132,8 +132,24 @@ def with_hist(tree: TreeEnsemble, dataset: datasets.arrow_dataset.Dataset):
     f.close()
     return answers, scores
 
+# colab methods
+def colab_init() -> None:
+    time.sleep(15)
+    install_llms()
+
+def install_llms() -> None:
+    print('#########################    Installing LLMS    #########################')
+    os.system('ollama pull mistral')
+    os.system('ollama pull gemma')
+    os.system('ollama pull qwen2')
+    os.system('ollama pull llama3')
+    os.system('ollama pull deepseek-llm')
+    os.system('ollama pull orca-mini')
+    os.system('ollama pull phi')
 
 if __name__ == "__main__":
+    # colab_init() # call this to make script run in colab
+    print('Started at ' + str(time.perf_counter()))
     tree = TreeEnsemble(['llama3', 'gemma', 'mistral', 'phi', 'deepseek-llm', 'qwen2', 'orca-mini'], "bertscore")
     
     print("LLMs initialized in the tree:")
@@ -142,15 +158,12 @@ if __name__ == "__main__":
     print('#################################')
     
     # atlas_dataset = init_atlas_dataset()
-    # q = "What is applied anthropology?"
-    # a = "Applied anthropology refers to the practical application of anthropological theories and methods to solve contemporary social problems. It involves working with communities to understand and address issues such as poverty, health, education, and inequality."
-    # print("O/P of one run of randomized tree structure")
-    # print(query_tree(tree, q))
 
     dataset_conv_questions = dataset_init_conv_questions()
     results_1, scores = with_hist(tree, dataset_conv_questions)
 
     for _ in tree.tree_structure:
         print(_)
+    print('Completed at ' + str(time.perf_counter()))
 
     

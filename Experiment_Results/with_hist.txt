@@ -1,2 +1,1 @@
-['September 1969', '"I Want to Hold Your Hand"', 'February 4, 1983', 'Karen had anorexia nervosa.', 'Hester Prynne was a central character in Nathaniel Hawthorne\'s novel "The Scarlet Letter".']
-['Yes', 'March 14, 1879', 'Schubert', 'Yes.', "I don't know."]
+['June 23, 1969.', 'Information about the artist is not provided in the given context, so I am unable to answer the question.', 'February 2, 2016.', 'Karen had a binge eating disorder.', 'Marie Curie died due to aplastic anemia, a blood disorder likely caused by her prolonged exposure to radioactive materials throughout her career.']
