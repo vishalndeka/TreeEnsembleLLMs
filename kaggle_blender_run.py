@@ -29,6 +29,23 @@ def dataset_init_conv_questions() -> datasets.arrow_dataset.Dataset:
 
     return train_data
 
+def dataset_init_atlas_converse():
+    dataset_atlas = []
+    with open('atlas-converse\combined-convo.json', 'r') as f:
+        li = json.load(f)
+    f.close()
+    dataset_atlas.extend(li[:33])
+    with open('atlas-converse\combined-convo_2.json', 'r') as f:
+        li = json.load(f)
+    f.close()
+    dataset_atlas.extend(li[:33])
+    with open('atlas-converse\combined-convo_3.json', 'r') as f:
+        li = json.load(f)
+    f.close()
+    dataset_atlas.extend(li[:34])
+
+    return dataset_atlas
+
 def generate(llm: str, prompt: str, context: str) -> str:
     # url = 'https://996c-35-193-113-166.ngrok-free.app/api/generate'
     url = 'http://127.0.0.1:11434/api/generate'
@@ -52,25 +69,16 @@ def llm_blender_Conv(llm_list, dataset, bertscore):
     final_scores = []
     fa = []
     sa = []
-    url = 'http://127.0.0.1:11434/api/generate'
     for i in range(len(dataset)):
         print(i)
         ans_set = []
         scores = []
         context = ""
         for j in range(len(dataset[i]['questions'])):
-            question = dataset[i]['questions'][j] + context
+            question = dataset[i]['questions'][j]
             candidates_texts = []
             for llm in llm_list:
-                f = open('input.json', 'r')
-                data = json.load(f)
-                data['model'] = llm
-                data['prompt'] = question
-                response = requests.post(url, json=data)
-                assert response.status_code == 200
-                dictionary = json.loads(response.text)
-                candidates_texts.append(dictionary['response'])
-                f.close()
+                candidates_texts.append(generate(llm, question, context))
             ranks = blender.rank(
                 [dataset[i]['questions'][j]], [candidates_texts], return_scores=False, batch_size=1)
             topk_candidates = get_topk_candidates_from_ranks(
@@ -111,6 +119,50 @@ def llm_blender_Conv(llm_list, dataset, bertscore):
 
     return fused_answers
 
+def atlas_blender_run(llmList, dataset)->list:
+    blender = llm_blender.Blender()
+    blender.loadranker("llm-blender/PairRM")
+    blender.loadfuser("llm-blender/gen_fuser_3b")
+    filename = 'Experiment_Results\\atlas_results.txt'
+    # scores_files = 'Experiment_Results\\atlas_scores.txt'
+    fused_answers = []
+    # final_scores = []
+    fa = []
+    # sa = []
+    for i in range(len(dataset)):
+        ans_set = []
+        scores = []
+        context = ""
+        for j in range(len(dataset[i]['conversations'])):
+            if j+1>=len(dataset[i]['conversations']) or dataset[i]['conversations'][j]['from'] == 'AI':
+                continue
+            question = dataset[i]['conversations'][j]['value']
+            candidates_texts = []
+            for llm in llmList:
+                response = generate(llm, question, context)
+                candidates_texts.append(response)
+            fuse_generations = blender.fuse(
+                [dataset[i]['conversations'][j]['value']], [candidates_texts], batch_size=2)
+            ans_set.append(fuse_generations[0])
+            context += fuse_generations[0]
+            
+        fa.append(ans_set)
+        if i%1==0:
+            with open(filename, 'a') as f:
+                for line in fa:
+                    f.write(f"{line}\n")
+            f.close()
+            fused_answers.extend(fa)
+            fa = []
+
+    
+    with open(filename, 'a') as f:
+        for line in fa:
+            f.write(f"{line}\n")
+    f.close()
+
+    return fused_answers
+
 if __name__=='__main__':
     time.sleep(15)
     str = "{\"model\":\"\",\"prompt\":\"\",\"stream\":false}"
@@ -118,7 +170,9 @@ if __name__=='__main__':
         f.write(str)
     f.close()
     llm_list = install_llms()
-    dataset = dataset_init_conv_questions()
+    dataset_conv = dataset_init_conv_questions()
+    dataset_atlas = dataset_init_atlas_converse()
     bertscore = load("bertscore")
     
-    llm_blender_Conv(llm_list, dataset, bertscore)
+    # llm_blender_Conv(llm_list, dataset, bertscore)
+    atlas_blender_run(llm_list, dataset_atlas)
